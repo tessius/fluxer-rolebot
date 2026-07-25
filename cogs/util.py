@@ -30,10 +30,12 @@ class Util(Cog):
             "**Available Commands:**\n"
             f"`{prefix}ping` - Check if the bot is responsive.\n"
             f"`{prefix}help` - Display this help message.\n"
-            f"`{prefix}add <tag role> <emoji>` - Add a role reaction (admin only).\n"
+            f"`{prefix}add <@role> <emoji> [message_link]` - Add a role reaction (admin only). Provide message link when multiple messages are registered.\n"
             f"`{prefix}remove <emoji>` - Remove a role reaction (admin only).\n"
-            f"`{prefix}setmessage <message_link>` - Configure the message for role reactions (admin only).\n"
-            f"`{prefix}removemessage` - Remove the configured role reaction message (admin only).\n"
+            f"`{prefix}setmessage <message_link>` - Add a message to the role reaction list (admin only). Multiple messages supported.\n"
+            f"`{prefix}removemessage <message_link>` - Remove a specific role reaction message (admin only).\n"
+            f"`{prefix}removemessage all` - Remove all configured role reaction messages (admin only).\n"
+            f"`{prefix}listmessages` - List all configured role reaction messages (admin only).\n"
         )
         await ctx.reply(help_message)
 

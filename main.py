@@ -27,6 +27,7 @@ else:
 bot = fluxer.Bot(
     command_prefix=command_prefix,
     intents=fluxer.Intents.all(),
+    api_url=os.getenv("FLUXER_API_URL", "https://api.fluxer.app/v1"),
 )
 
 cogs = ["admin", "reaction_handling", "util"]

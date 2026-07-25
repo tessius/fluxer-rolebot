@@ -6,7 +6,8 @@ from fluxer import Cog
 from util.admin import is_admin
 from util.database import (
     delete_role_association,
-    get_configured_message,
+    get_configured_messages,
+    get_configured_message_by_id,
     get_role_association,
     set_role_association,
 )
@@ -64,7 +65,7 @@ def get_reaction_role_id(
 ) -> int | None:
     """
     Check if the reaction corresponds to a configured role reaction and return the associated role ID.
-    Also performs checks to ensure the reaction is on the configured message and not from a bot.
+    Checks against all registered messages for the guild.
 
     Args:
         guild_id: The ID of the guild where the reaction occurred
@@ -75,8 +76,9 @@ def get_reaction_role_id(
     if bot.user is None or user_id == bot.user.id:
         return None
 
-    configured = get_configured_message(guild_id)
-    if configured is None or message_id != configured["message_id"]:
+    configured_messages = get_configured_messages(guild_id)
+    registered_ids = {m["message_id"] for m in configured_messages}
+    if message_id not in registered_ids:
         return None
 
     return get_role_association(guild_id, emoji_str)
@@ -122,6 +124,11 @@ class ReactionHandling(Cog):
 
     @Cog.command()
     async def add(self, ctx: fluxer.Message):
+        """
+        Associate a role with an emoji on a specific role react message.
+        Usage: `!add @Role :emoji: <message_link>`
+        If only one message is configured, the message link is optional.
+        """
         if ctx.guild_id is None:
             await ctx.reply("This command can only be used in a server.")
             return
@@ -130,26 +137,72 @@ class ReactionHandling(Cog):
             await ctx.reply("You need administrator permissions to use this command.")
             return
 
-        configured = get_configured_message(ctx.guild_id)
-        if configured is None:
+        configured_messages = get_configured_messages(ctx.guild_id)
+        if not configured_messages:
             await ctx.reply(
-                "No role react message is configured. Use `!role setmessage <message_link>` first."
+                "No role react messages are configured. Use `!setmessage <message_link>` first."
             )
             return
 
         role_match = re.search(r"<@&(\d+)>", ctx.content)
         if role_match is None:
-            await ctx.reply("Please mention a role. Usage: `!role add @Role :emoji:`")
+            await ctx.reply("Please mention a role. Usage: `!add @Role :emoji: [message_link]`")
             return
 
         role_id = int(role_match.group(1))
-
-        after_role = ctx.content[role_match.end() :].strip()
+        after_role = ctx.content[role_match.end():].strip()
         if not after_role:
-            await ctx.reply("Please provide an emoji. Usage: `!role add @Role :emoji:`")
+            await ctx.reply("Please provide an emoji. Usage: `!add @Role :emoji: [message_link]`")
             return
 
-        cleaned = parse_emoji(after_role)
+        # Check if a message link was provided as the last token
+        tokens = after_role.split()
+        last_token = tokens[-1]
+        target_message = None
+
+        if last_token.startswith("http") and "/channels/" in last_token:
+            # A message link was provided — find which registered message it points to
+            from urllib.parse import urlparse
+            parsed = urlparse(last_token)
+            path_parts = parsed.path.split("/")
+            try:
+                msg_id = int(path_parts[-1])
+                channel_id = int(path_parts[-2])
+            except (ValueError, IndexError):
+                await ctx.reply("Invalid message link format.")
+                return
+
+            target_message = get_configured_message_by_id(ctx.guild_id, msg_id)
+            if target_message is None:
+                await ctx.reply(
+                    f"Message `{msg_id}` is not registered. Use `!setmessage <link>` to add it first."
+                )
+                return
+
+            # Emoji is everything between the role mention and the link
+            emoji_text = " ".join(tokens[:-1]).strip()
+        else:
+            # No link — use the first registered message
+            if len(configured_messages) > 1:
+                lines = [
+                    "Multiple role react messages are configured. Please specify which one:",
+                    "`!add @Role :emoji: <message_link>`",
+                    "",
+                    "**Registered messages:**",
+                ]
+                for i, m in enumerate(configured_messages, 1):
+                    lines.append(f"{i}. `{m['message_id']}` in <#{m['channel_id']}>")
+                await ctx.reply("\n".join(lines))
+                return
+
+            target_message = configured_messages[0]
+            emoji_text = after_role
+
+        if not emoji_text:
+            await ctx.reply("Please provide an emoji. Usage: `!add @Role :emoji: [message_link]`")
+            return
+
+        cleaned = parse_emoji(emoji_text)
 
         if get_role_association(ctx.guild_id, cleaned) is not None:
             await ctx.reply(
@@ -160,20 +213,22 @@ class ReactionHandling(Cog):
         set_role_association(ctx.guild_id, role_id, cleaned)
 
         role_message = await self.bot.fetch_message(
-            configured["channel_id"], configured["message_id"]
+            target_message["channel_id"], target_message["message_id"]
         )
-        api_emoji = emoji_for_reaction_api(after_role)
+        api_emoji = emoji_for_reaction_api(emoji_text)
         logger.info(f"Adding reaction, emoji: {api_emoji!r}")
         try:
             await role_message.add_reaction(api_emoji)
         except Exception as e:
             logger.error(f"Failed to add reaction: {e}")
             await ctx.reply(
-                f"Associated {after_role.split()[0]} with <@&{role_id}>, but failed to add reaction to message."
+                f"Associated {emoji_text.split()[0]} with <@&{role_id}>, but failed to add reaction to message."
             )
             return
 
-        await ctx.reply(f"Associated {after_role.split()[0]} with <@&{role_id}>.")
+        await ctx.reply(
+            f"Associated {emoji_text.split()[0]} with <@&{role_id}> on message `{target_message['message_id']}`."
+        )
 
     @Cog.command()
     async def remove(self, ctx: fluxer.Message):
@@ -185,15 +240,15 @@ class ReactionHandling(Cog):
             await ctx.reply("You need administrator permissions to use this command.")
             return
 
-        if get_configured_message(ctx.guild_id) is None:
+        if not get_configured_messages(ctx.guild_id):
             await ctx.reply(
-                "No role react message is configured. Use `!role setmessage <message_link>` first."
+                "No role react messages are configured. Use `!setmessage <message_link>` first."
             )
             return
 
         after_cmd = ctx.content.split("remove", 1)[-1].strip()
         if not after_cmd:
-            await ctx.reply("Usage: `!role remove :emoji:`")
+            await ctx.reply("Usage: `!remove :emoji:`")
             return
 
         cleaned = parse_emoji(after_cmd)
