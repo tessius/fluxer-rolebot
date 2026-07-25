@@ -1,6 +1,6 @@
 # fluxer-rolebot
 
-A reaction role bot for [Fluxer](https://fluxer.app). Administrators configure a message and associate emojis with roles. When users react, they automatically receive or lose the corresponding role.
+A reaction role bot for [Fluxer](https://fluxer.app). Administrators configure one or more messages and associate emojis with roles. When users react, they automatically receive or lose the corresponding role. Multiple role reaction messages are supported — each message is watched independently.
 
 Want to use this without hosting?
 
@@ -42,12 +42,15 @@ The bot stores data in a `data/` directory mounted as a volume. See the [Makefil
 
 All commands currently require administrator permissions. The default prefix is `!` (configurable via `COMMAND_PREFIX`).
 
-| Command                      | Description                                     |
-| ---------------------------- | ----------------------------------------------- |
-| `!setmessage <message_link>` | Set the message users react on to receive roles |
-| `!removemessage`             | Remove the configured message                   |
-| `!add @Role <emoji>`         | Associate an emoji with a role                  |
-| `!remove <emoji>`            | Remove an emoji-role association                |
+| Command                          | Description                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `!setmessage <message_link>`     | Add a message to the role reaction list. Can be run multiple times to register multiple messages |
+| `!removemessage <message_link>`  | Remove a specific role reaction message                                                          |
+| `!removemessage all`             | Remove all configured role reaction messages                                                     |
+| `!listmessages`                  | List all configured role reaction messages                                                       |
+| `!add @Role <emoji>`             | Associate an emoji with a role (uses the only registered message if there's one)                 |
+| `!add @Role <emoji> <message_link>` | Associate an emoji with a role on a specific message (required when multiple are registered)  |
+| `!remove <emoji>`                | Remove an emoji-role association                                                                 |
 
 ## Environment Variables
 
